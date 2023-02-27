@@ -1,0 +1,3 @@
+$(eval $(call addlib, libubpf_tracer))
+
+# LIBUBPF_TRACER_SRCS-y += 
