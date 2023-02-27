@@ -1,3 +1,0 @@
-$(eval $(call addlib, libubpf_tracer))
-
-LIBUBPF_TRACER_SRCS-y += $(LIBUBPF_TRACER_BASE)/lib.h
