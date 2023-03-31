@@ -2,6 +2,8 @@
 #include "ubpf.h"
 #include <stdint.h>
 
+struct UbpfTracer *g_tracer = NULL;
+
 struct UbpfTracer *init_tracer() {
   struct UbpfTracer *tracer = malloc(sizeof(struct UbpfTracer));
   tracer->vm_map = NULL;
@@ -37,9 +39,12 @@ void load_debug_symbols(struct UbpfTracer *tracer) {
   printf("Loaded all symbols\n");
 }
 
-void insert_bpf_program(struct UbpfTracer *tracer, const char *function_name,
-                        const char *bpf_filename) {
-  void *traced_function_address = find_function_address(tracer, function_name);
+void insert_bpf_program(const char *function_name, const char *bpf_filename) {
+  if (g_tracer == NULL) {
+    g_tracer = init_tracer();
+  }
+  void *traced_function_address =
+      find_function_address(g_tracer, function_name);
 
   size_t code_len;
   void *bpf_program = readfile(bpf_filename, 1024 * 1024, &code_len);
@@ -49,7 +54,7 @@ void insert_bpf_program(struct UbpfTracer *tracer, const char *function_name,
   ubpf_load(vm, bpf_program, code_len, &errmsg);
   printf("function address = %p\n", traced_function_address);
 
-  // TODO: tracer->vm_map[function_address] += vm
+  // TODO: g_tracer->vm_map[function_address] += vm
 
   // TODO: insert the call instruction
   void *run_bpf_address = (void *)&run_bpf_program;

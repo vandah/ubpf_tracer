@@ -33,8 +33,7 @@ struct UbpfTracer *init_tracer();
 void load_debug_symbols(struct UbpfTracer *tracer);
 void *find_function_address(struct UbpfTracer *tracer,
                             const char *function_name);
-void insert_bpf_program(struct UbpfTracer *tracer, const char *function_name,
-                        const char *bpf_filename);
+void insert_bpf_program(const char *function_name, const char *bpf_filename);
 void run_bpf_program();
 
 void *readfile(const char *path, size_t maxlen, size_t *len);
