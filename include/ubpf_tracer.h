@@ -1,5 +1,6 @@
 #ifndef UBPF_TRACER_H
 #define UBPF_TRACER_H
+#include "arraylist.h"
 #include "hash_chains.h"
 #include "ubpf_helpers.h"
 
@@ -11,16 +12,18 @@
 #include <stdio.h>
 #include <string.h>
 
-// struct ubpf_vm *vm;
-// struct THashMap *hmap;
-
-#define FUNCTION_BEGIN_OFFSET 4
+#define FUNCTION_BEGIN_OFFSET 8
 #define CALL_OPCODE 0xe8
 
 struct UbpfTracer {
   struct DebugInfo *symbols; // { function_name -> function_address }
   uint32_t symbols_cnt;
-  void *vm_map; // { function_address -> List<ubpf_vm> }
+  struct THashMap *vm_map;  // { function_address -> List<ubpf_vm> }
+  struct THashMap *nop_map; // { function_address -> nop_address }
+};
+
+struct UbpfTracerCtx {
+  uint64_t traced_function_address;
 };
 
 struct DebugInfo {
@@ -30,6 +33,7 @@ struct DebugInfo {
 };
 
 struct UbpfTracer *init_tracer();
+struct UbpfTracer *get_tracer();
 void load_debug_symbols(struct UbpfTracer *tracer);
 void *find_function_address(struct UbpfTracer *tracer,
                             const char *function_name);
