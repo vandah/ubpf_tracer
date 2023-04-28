@@ -12,6 +12,21 @@ void bpf_notify(void *function_id) {
   }
 }
 
+uint64_t bpf_get_ret_addr(const char *function_name) {
+  if (function_name == NULL) {
+    return 0;
+  }
+  struct UbpfTracer *tracer = get_tracer();
+  uint64_t fun_addr = get_function_address(tracer, function_name);
+  if (fun_addr == 0)
+    return 0;
+  uint64_t nop_addr = get_nop_address(tracer, fun_addr);
+  if (nop_addr == 0)
+    return 0;
+  uint64_t result = nop_addr + CALL_INSTRUCTION_SIZE;
+  return result;
+}
+
 void destruct_cell(struct THashCell *elem) {
   free(elem->m_Value);
   elem->m_Value = NULL;
@@ -55,11 +70,23 @@ struct UbpfTracer *init_tracer() {
   tracer->helper_list = init_helper_list();
 
   // register local helpers
-  list_add_elem(tracer->helper_list, "bpf_notify", bpf_notify);
+  tracer_helpers_add(tracer, "bpf_notify", bpf_notify);
+  tracer_helpers_add(tracer, "bpf_get_ret_addr", bpf_get_ret_addr);
 
   load_debug_symbols(tracer);
 
   return tracer;
+}
+
+void tracer_helpers_add(struct UbpfTracer *tracer, const char *label,
+                        void *function_ptr) {
+  list_add_elem(tracer->helper_list, label, function_ptr);
+  additional_helpers_list_add(label, function_ptr);
+}
+
+void tracer_helpers_del(struct UbpfTracer *tracer, const char *label) {
+  list_remove_elem(tracer->helper_list, label);
+  additional_helpers_list_del(label);
 }
 
 struct UbpfTracer *get_tracer() {
@@ -301,7 +328,29 @@ int bpf_list_internal(struct UbpfTracer *tracer, const char *function_name,
 
 int bpf_detach_internal(struct UbpfTracer *tracer, const char *function_name,
                         const char *bpf_filename, void (*print_fn)(char *str)) {
-  // TODO
+  uint64_t fun_addr = get_function_address(tracer, function_name);
+  if (fun_addr == 0) {
+    print_fn(ERR("Function not found\n"));
+    return 1;
+  }
+
+  uint64_t nop_addr = get_nop_address(tracer, fun_addr);
+  if (nop_addr == 0) {
+    print_fn(ERR("Function not traced\n"));
+    return 1;
+  }
+
+  // replace call with nop again
+  memcpy((void *)nop_addr, nopl, sizeof(nopl));
+
+  // remove entry from nop map
+  hmap_del(tracer->nop_map, fun_addr);
+
+  // remove entry from VM map
+  hmap_del(tracer->vm_map, nop_addr + CALL_INSTRUCTION_SIZE);
+
+  // remove entry from function names
+  hmap_del(tracer->function_names, nop_addr + CALL_INSTRUCTION_SIZE);
   return 0;
 }
 
@@ -322,12 +371,11 @@ int bpf_detach(const char *function_name, const char *bpf_filename,
 }
 
 int bpf_get_addr(const char *function_name, void (*print_fn)(char *str)) {
-  struct UbpfTracer *tracer = get_tracer();
-  uint64_t addr = find_nop_address(tracer, function_name, print_fn);
+  uint64_t addr = bpf_get_ret_addr(function_name);
   if (addr == 0) {
+    print_fn(ERR("Function not traced\n"));
     return 1;
   }
-  addr += CALL_INSTRUCTION_SIZE;
   wrap_print_fn(100, "Address of %s is %lx\n", function_name, addr);
   return 0;
 }

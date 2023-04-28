@@ -22,11 +22,12 @@
 // BPF helperes
 uint64_t bpf_map_get(uint64_t key1, uint64_t key2);
 void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value);
-long long bpf_strtoll(const char *st, int base);
-unsigned long long bpf_strtoull(const char *st, int base);
+void bpf_map_del(uint64_t key1, uint64_t key2);
 
 struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list);
 struct ArrayListWithLabels *init_helper_list();
+void additional_helpers_list_add(const char *label, void *function_ptr);
+void additional_helpers_list_del(const char *label);
 
 void *readfile(const char *path, size_t maxlen, size_t *len);
 

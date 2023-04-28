@@ -40,14 +40,21 @@ struct UbpfTracer *init_tracer();
 struct UbpfTracer *get_tracer();
 
 void load_debug_symbols(struct UbpfTracer *tracer);
+uint64_t get_function_address(struct UbpfTracer *tracer,
+                              const char *function_name);
+uint64_t get_nop_address(struct UbpfTracer *tracer, uint64_t function_address);
 uint64_t find_nop_address(struct UbpfTracer *tracer, const char *function_name,
                           void (*print_fn)(char *str));
+void tracer_helpers_add(struct UbpfTracer *tracer, const char *label,
+                        void *function_ptr);
+void tracer_helpers_del(struct UbpfTracer *tracer, const char *label);
 void run_bpf_program();
 
 void *readfile(const char *path, size_t maxlen, size_t *len);
 
 // BPF helpers
 void bpf_notify(void *function_id);
+uint64_t bpf_get_ret_addr(const char *function_name);
 
 // shell commands
 int bpf_attach(const char *function_name, const char *bpf_filename,

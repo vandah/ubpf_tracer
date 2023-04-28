@@ -19,6 +19,7 @@ struct THashMap *hmap_init(uint64_t size,
   }
 
   hmap->m_Size = size;
+  hmap->m_Elems = 0;
   hmap->m_Map = (struct THashCell **)calloc(size, sizeof(struct THashCell *));
   hmap->destruct_cell = destruct_cell;
   hmap->create_cell = create_cell;
@@ -61,6 +62,7 @@ struct THmapValueResult *hmap_put(struct THashMap *hmap, uint64_t key,
   uint64_t map_idx = key % hmap->m_Size;
   struct THashCell *current = hmap->m_Map[map_idx];
   struct THashCell *prev;
+  // first cell in the chain?
   if (current == NULL) {
     struct THashCell *cell = hmap_new_cell(key, value);
     if (cell == NULL) {
@@ -68,6 +70,7 @@ struct THmapValueResult *hmap_put(struct THashMap *hmap, uint64_t key,
       return result;
     }
     hmap->m_Map[map_idx] = cell;
+    hmap->m_Elems++;
 
     result->m_Value = value;
     result->m_Result = HMAP_SUCCESS;
@@ -86,13 +89,58 @@ struct THmapValueResult *hmap_put(struct THashMap *hmap, uint64_t key,
     current = current->m_Next;
   }
 
+  // add to the tail of the chain
   struct THashCell *cell = hmap_new_cell(key, value);
   if (cell == NULL) {
     result->m_Result = HMAP_ALLOCFAIL;
     return result;
   }
+  hmap->m_Elems++;
   prev->m_Next = cell;
   result->m_Result = HMAP_SUCCESS;
+  return result;
+}
+
+struct THmapValueResult *hmap_del(struct THashMap *hmap, uint64_t key) {
+  struct THmapValueResult *result = calloc(1, sizeof(struct THmapValueResult));
+  if (result == NULL)
+    return NULL;
+
+  result->m_Value = NULL;
+
+  if (hmap == NULL) {
+    result->m_Result = HMAP_BADARGUMENT;
+    return result;
+  }
+
+  uint64_t map_idx = key % hmap->m_Size;
+  struct THashCell *current = hmap->m_Map[map_idx];
+  struct THashCell *prev = NULL;
+  if (current == NULL) {
+    result->m_Result = HMAP_NOTFOUND;
+    return result;
+  }
+
+  // let's see if the key is already there
+  while (current != NULL) {
+    if (current->m_Key == key) {
+      // delete
+      if (prev == NULL) {
+        hmap->m_Map[map_idx] = current->m_Next;
+      } else {
+        prev->m_Next = current->m_Next;
+      }
+      hmap->destruct_cell(current);
+      free(current);
+      hmap->m_Elems--;
+      result->m_Result = HMAP_SUCCESS;
+      return result;
+    }
+    prev = current;
+    current = current->m_Next;
+  }
+
+  result->m_Result = HMAP_NOTFOUND;
   return result;
 }
 

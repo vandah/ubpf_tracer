@@ -1,14 +1,7 @@
 #include "ubpf_helpers.h"
 
-long long bpf_strtoll(const char *st, int base) {
-  return strtoll(st, NULL, base);
-}
-
-unsigned long long bpf_strtoull(const char *st, int base) {
-  return strtoull(st, NULL, base);
-}
-
 struct THashMap *g_bpf_map = NULL;
+struct ArrayListWithLabels *additional_helpers = NULL;
 
 void destruct_cell_l2(struct THashCell *cell) { free(cell->m_Value); }
 void *create_cell_l2() {
@@ -66,6 +59,27 @@ void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value) {
   }
 }
 
+void bpf_map_del(uint64_t key1, uint64_t key2) {
+  printf("(DEL) bpf_map[%lu][%lu]", key1, key2);
+  if (g_bpf_map == NULL) {
+    return;
+  }
+
+  struct THmapValueResult *hmap_entry_l1 = hmap_get(g_bpf_map, key1);
+  if (hmap_entry_l1->m_Result == HMAP_NOTFOUND) {
+    return;
+  }
+
+  struct THashMap *map_l2 = hmap_entry_l1->m_Value;
+
+  if (hmap_entry_l1->m_Result == HMAP_SUCCESS) {
+    hmap_del(map_l2, key2);
+    if (map_l2->m_Elems == 0) {
+      hmap_del(g_bpf_map, key1);
+    }
+  }
+}
+
 uint64_t bpf_unwind(uint64_t i) { return i; }
 
 // we put in function pointers so don't free the values
@@ -77,22 +91,48 @@ struct ArrayListWithLabels *init_helper_list() {
   return list_init(4, &helper_list_destruct_entry);
 }
 
+void additional_helpers_list_add(const char *label, void *function_ptr) {
+  if (additional_helpers == NULL) {
+    additional_helpers = init_helper_list();
+  }
+  list_add_elem(additional_helpers, label, function_ptr);
+}
+
+void additional_helpers_list_del(const char *label) {
+  if (additional_helpers != NULL) {
+    list_remove_elem(additional_helpers, label);
+  }
+}
+
+#define register_helper(idx, label, fun_ptr)                                   \
+  {                                                                            \
+    printf("%s: %lu\n", label, idx);                                           \
+    ubpf_register(vm, idx, label, fun_ptr);                                    \
+  }
+
 struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list) {
   struct ubpf_vm *vm = ubpf_create();
   uint64_t function_index = 0;
-  ubpf_register(vm, function_index++, "bpf_map_get", bpf_map_get);
-  ubpf_register(vm, function_index++, "bpf_map_put", bpf_map_put);
-  ubpf_register(vm, function_index++, "bpf_strtoll", bpf_strtoll);
-  ubpf_register(vm, function_index++, "bpf_strtoull", bpf_strtoull);
+  register_helper(function_index, "bpf_map_get", bpf_map_get);
+  function_index++;
+  register_helper(function_index, "bpf_map_put", bpf_map_put);
+  function_index++;
+  register_helper(function_index, "bpf_map_del", bpf_map_del);
+  function_index++;
+
+  if (helper_list == NULL) {
+    helper_list = additional_helpers;
+  }
 
   if (helper_list != NULL) {
     for (uint64_t i = 0; i < helper_list->m_Length; ++i) {
       struct LabeledEntry elem = helper_list->m_List[i];
-      ubpf_register(vm, function_index++, elem.m_Label, elem.m_Value);
+      register_helper(function_index, elem.m_Label, elem.m_Value);
+      function_index++;
     }
   }
 
-  ubpf_register(vm, function_index, "bpf_unwind", bpf_unwind);
+  register_helper(function_index, "bpf_unwind", bpf_unwind);
   ubpf_set_unwind_function_index(vm, function_index);
   return vm;
 }
