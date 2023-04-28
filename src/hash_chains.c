@@ -74,6 +74,7 @@ struct THmapValueResult *hmap_put(struct THashMap *hmap, uint64_t key,
     return result;
   }
 
+  // let's see if the key is already there
   while (current != NULL) {
     if (current->m_Key == key) {
       current->m_Value = value;

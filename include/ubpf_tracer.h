@@ -8,18 +8,22 @@
 #include <ubpf_config.h>
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#define FUNCTION_BEGIN_OFFSET 8
 #define CALL_OPCODE 0xe8
+#define CALL_INSTRUCTION_SIZE 5
 
 struct UbpfTracer {
   struct DebugInfo *symbols; // { function_name -> function_address }
   uint32_t symbols_cnt;
-  struct THashMap *vm_map;  // { function_address -> List<ubpf_vm> }
-  struct THashMap *nop_map; // { function_address -> nop_address }
+  struct THashMap *nop_map;        // { function_address -> nop_address }
+  struct THashMap *vm_map;         // { ret_address -> List<(label, ubpf_vm)> }
+  struct THashMap *function_names; // { ret_address -> function_name }
+  struct ArrayListWithLabels
+      *helper_list; // [(function_name, function_address)]
 };
 
 struct UbpfTracerCtx {
@@ -34,14 +38,23 @@ struct DebugInfo {
 
 struct UbpfTracer *init_tracer();
 struct UbpfTracer *get_tracer();
+
 void load_debug_symbols(struct UbpfTracer *tracer);
-void *find_function_address(struct UbpfTracer *tracer,
-                            const char *function_name);
-void insert_bpf_program(const char *function_name, const char *bpf_filename);
+uint64_t find_nop_address(struct UbpfTracer *tracer, const char *function_name,
+                          void (*print_fn)(char *str));
 void run_bpf_program();
 
 void *readfile(const char *path, size_t maxlen, size_t *len);
-int ubpf_run_file(const char *filename, struct ubpf_vm *vm);
-__attribute__((noinline)) int run_test_file();
+
+// BPF helpers
+void bpf_notify(void *function_id);
+
+// shell commands
+int bpf_attach(const char *function_name, const char *bpf_filename,
+               void (*print_fn)(char *str));
+int bpf_list(const char *function_name, void (*print_fn)(char *str));
+int bpf_detach(const char *function_name, const char *bpf_filename,
+               void (*print_fn)(char *str));
+int bpf_get_addr(const char *function_name, void (*print_fn)(char *str));
 
 #endif /* UBPF_TRACER_H */

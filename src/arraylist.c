@@ -31,22 +31,17 @@ void list_resize(struct ArrayListWithLabels *list, uint64_t new_capacity) {
 
 void list_add_elem(struct ArrayListWithLabels *list, const char *label,
                    void *value) {
-  printf("check the list size\n");
   while (list->m_Length >= list->m_Capacity) {
     uint64_t new_capacity = list->m_Capacity * 2;
     if (new_capacity == 0)
       new_capacity = 1;
     list_resize(list, new_capacity);
-    printf("list resized\n");
   }
 
-  printf("copy label\n");
   list->m_List[list->m_Length].m_Label = malloc(strlen(label));
   strcpy(list->m_List[list->m_Length].m_Label, label);
-  printf("add value\n");
   list->m_List[list->m_Length].m_Value = value;
 
-  printf("increase length\n");
   list->m_Length += 1;
 }
 
@@ -80,9 +75,7 @@ void list_remove_elem(struct ArrayListWithLabels *list, const char *label) {
 
 void list_print(struct ArrayListWithLabels *list,
                 void (*print_entry)(struct LabeledEntry *)) {
-  for (uint64_t i = 0; i < list->m_Length; ++i) {
-    print_entry(&list->m_List[i]);
-  }
+  list_apply_function(list, print_entry);
 }
 
 void list_destroy(struct ArrayListWithLabels *list) {

@@ -1,6 +1,16 @@
 #include "ubpf_tracer.h"
 
-struct UbpfTracer *g_tracer = NULL;
+static const uint8_t nopl[] = {0x0f, 0x1f, 0x44, 0x00, 0x00};
+
+void bpf_notify(void *function_id) {
+  struct THmapValueResult *hmap_entry =
+      hmap_get(get_tracer()->function_names, (uint64_t)function_id);
+  if (hmap_entry->m_Result == HMAP_SUCCESS) {
+    printf(YAY("notify: %s\n"), (char *)hmap_entry->m_Value);
+  } else {
+    printf(ERR("notify: Unknown function at %p\n"), function_id);
+  }
+}
 
 void destruct_cell(struct THashCell *elem) {
   free(elem->m_Value);
@@ -13,8 +23,12 @@ void destruct_entry(struct LabeledEntry *entry) {
 }
 
 void *nop_map_init() {
-  uint64_t *value = malloc(sizeof(uint64_t));
-  *value = 0;
+  uint64_t *value = calloc(1, sizeof(uint64_t));
+  return (void *)value;
+}
+
+void *function_names_init() {
+  char *value = calloc(50, sizeof(char));
   return (void *)value;
 }
 
@@ -34,18 +48,28 @@ struct UbpfTracer *init_tracer() {
   struct UbpfTracer *tracer = malloc(sizeof(struct UbpfTracer));
   int map_result;
   tracer->vm_map =
-      hmap_init(101, &vm_map_destruct_cell, &init_arraylist, &map_result);
-  tracer->nop_map = hmap_init(101, &destruct_cell, &nop_map_init, &map_result);
+      hmap_init(101, vm_map_destruct_cell, init_arraylist, &map_result);
+  tracer->nop_map = hmap_init(101, destruct_cell, nop_map_init, &map_result);
+  tracer->function_names =
+      hmap_init(101, destruct_cell, function_names_init, &map_result);
+  tracer->helper_list = init_helper_list();
+
+  // register local helpers
+  list_add_elem(tracer->helper_list, "bpf_notify", bpf_notify);
 
   load_debug_symbols(tracer);
 
   return tracer;
 }
 
-struct UbpfTracer *get_tracer() { return g_tracer; }
+struct UbpfTracer *get_tracer() {
+  static struct UbpfTracer *tracer = NULL;
+  if (tracer == NULL)
+    tracer = init_tracer();
+  return tracer;
+}
 
 void load_debug_symbols(struct UbpfTracer *tracer) {
-  printf("Loading debug symbols...\n");
   FILE *file_debug_sym = fopen("debug.sym", "r");
   uint32_t symbols_size = 1;
 
@@ -67,107 +91,97 @@ void load_debug_symbols(struct UbpfTracer *tracer) {
 
     tracer->symbols_cnt++;
   }
-  printf("Loaded all symbols\n");
 }
 
-void insert_bpf_program(const char *function_name, const char *bpf_filename) {
-  if (g_tracer == NULL) {
-    g_tracer = init_tracer();
-  }
-  void *traced_function_address =
-      find_function_address(g_tracer, function_name);
-  if (traced_function_address == NULL) {
-    fprintf(stderr, "Can't insert BPF program.\n");
-    return;
+int bpf_attach_internal(struct UbpfTracer *tracer, const char *function_name,
+                        const char *bpf_filename, void (*print_fn)(char *str)) {
+  if (function_name == NULL || bpf_filename == NULL)
+    return 1;
+
+  uint64_t nop_addr = find_nop_address(tracer, function_name, print_fn);
+  if (nop_addr == 0) {
+    print_fn(ERR("Can't insert BPF program (no nop).\n"));
+    return 2;
   }
 
   size_t code_len;
   void *bpf_program = readfile(bpf_filename, 1024 * 1024, &code_len);
+  if (bpf_program == NULL) {
+    print_fn(ERR("Can't insert BPF program (file doesn't exist).\n"));
+    return 3;
+  }
   // TODO: verify bpf_program here
 
-  struct ubpf_vm *vm = init_vm();
+  struct ubpf_vm *vm = init_vm(tracer->helper_list);
   char *errmsg;
   ubpf_load(vm, bpf_program, code_len, &errmsg);
-  printf("function address = %p\n", traced_function_address);
 
-  printf("get or create entry\n");
-  struct THmapValueResult *hmap_entry =
-      hmap_get_or_create(g_tracer->vm_map, (uint64_t)traced_function_address +
-                                               CALL_INSTRUCTION_SIZE);
+  struct THmapValueResult *hmap_entry = hmap_get_or_create(
+      tracer->vm_map, (uint64_t)nop_addr + CALL_INSTRUCTION_SIZE);
   if (hmap_entry->m_Result == HMAP_SUCCESS) {
-    printf("get list\n");
     struct ArrayListWithLabels *list = hmap_entry->m_Value;
-    printf("create label\n");
+    bool nop_already_replaced = list->m_Length > 0;
+
     char *label = malloc(strlen(bpf_filename));
     strcpy(label, bpf_filename);
-    printf("add element\n");
     list_add_elem(list, label, vm);
 
-    printf("insert instruction\n");
-    void *run_bpf_address = (void *)&run_bpf_program;
-    uint8_t call_function[CALL_INSTRUCTION_SIZE];
-    call_function[0] = CALL_OPCODE;
-    uint32_t offset = (uint32_t)(run_bpf_address - traced_function_address -
-                                 sizeof(call_function));
-    memcpy(&(call_function[1]), &offset, sizeof(offset));
-    memcpy(traced_function_address, call_function, sizeof(call_function));
+    if (!nop_already_replaced) {
+      uint64_t run_bpf_address = (uint64_t)run_bpf_program;
+      uint8_t call_function[CALL_INSTRUCTION_SIZE];
+      call_function[0] = CALL_OPCODE;
+      uint32_t offset =
+          (uint32_t)(run_bpf_address - nop_addr - sizeof(call_function));
+      memcpy(&(call_function[1]), &offset, sizeof(offset));
+      memcpy((void *)nop_addr, call_function, sizeof(call_function));
+    }
+    print_fn(YAY("Program was attached.\n"));
+  } else {
+    print_fn(ERR("Can't access vm_map.\n"));
   }
+  return 0;
 }
 
-uint64_t find_function_start(struct UbpfTracer *tracer, uint64_t search_value) {
-  struct THmapValueResult *map_entry = hmap_get(tracer->nop_map, search_value);
+uint64_t get_function_address(struct UbpfTracer *tracer,
+                              const char *function_name) {
+  for (uint32_t i = 0; i < tracer->symbols_cnt; ++i) {
+    if (strcmp(function_name, tracer->symbols[i].identifier) == 0) {
+      return tracer->symbols[i].address;
+    }
+  }
+  return 0;
+}
+
+uint64_t get_nop_address(struct UbpfTracer *tracer, uint64_t function_address) {
+  struct THmapValueResult *map_entry =
+      hmap_get(tracer->nop_map, function_address);
   if (map_entry->m_Result == HMAP_SUCCESS) {
     return *(uint64_t *)map_entry->m_Value;
   }
-
-  uint64_t start = 0;
-  uint64_t end = tracer->symbols_cnt - 1;
-
-  uint32_t steps = 0;
-  while (end > start && steps < 30) {
-    steps++;
-    uint64_t current = (end + start + 1) / 2;
-    if (search_value < tracer->symbols[current].address) {
-      end = current - 1;
-    } else if (current == end ||
-               search_value < tracer->symbols[current + 1].address) {
-      return tracer->symbols[current].address;
-    } else {
-      start = current;
-    }
-  }
-  return start;
+  return 0;
 }
 
-void *find_function_address(struct UbpfTracer *tracer,
-                            const char *function_name) {
-  void *addr = NULL;
-  void *addr_next = NULL;
+uint64_t find_nop_address(struct UbpfTracer *tracer, const char *function_name,
+                          void (*print_fn)(char *str)) {
 
-  for (uint32_t i = 0; i < tracer->symbols_cnt; ++i) {
-    if (strcmp(function_name, tracer->symbols[i].identifier) == 0) {
-      addr = (void *)tracer->symbols[i].address;
-      // if it's not the last one then save address of the next function
-      if (i != tracer->symbols_cnt - 1) {
-        addr_next = (void *)tracer->symbols[i + 1].address;
-      } else {
-        // let's not try more than 100 bytes
-        addr_next = addr + 100;
-      }
-    }
+  uint64_t addr = get_function_address(tracer, function_name);
+  // don't search more than 100 instructions
+  uint64_t addr_max = addr + 100;
+  if (addr == 0) {
+    print_fn(ERR("Function not found.\n"));
+    return 0;
   }
 
-  if (addr == NULL) {
-    fprintf(stderr, "Function not found.\n");
-    return NULL;
+  // check if we already don't have the nop address saved
+  uint64_t saved_nopl_addr = get_nop_address(tracer, addr);
+  if (saved_nopl_addr != 0) {
+    return saved_nopl_addr;
   }
-
-  uint8_t nopl[] = {0x0f, 0x1f, 0x44, 0x00, 0x00};
 
   uint8_t nopl_idx = 0;
   uint8_t *nopl_addr = NULL;
   bool found_nopl = false;
-  for (uint8_t *i = addr; i < (uint8_t *)addr_next; ++i) {
+  for (uint8_t *i = (uint8_t *)addr; i < (uint8_t *)addr_max; ++i) {
     if (*i == nopl[nopl_idx]) {
       if (nopl_idx == 0) {
         nopl_addr = i;
@@ -183,120 +197,137 @@ void *find_function_address(struct UbpfTracer *tracer,
     }
   }
   if (!found_nopl) {
-    fprintf(stderr, "Nopl not found in function.\n");
-    return NULL;
+    print_fn(ERR("Nopl not found in function.\n"));
+    return 0;
   }
 
-  return nopl_addr;
+  // insert into nop map
+  uint64_t *nopl_addr_copy = calloc(1, sizeof(uint64_t));
+  *nopl_addr_copy = (uint64_t)nopl_addr;
+  hmap_put(tracer->nop_map, (uint64_t)addr, nopl_addr_copy);
+
+  // insert function name into function_names map
+  char *function_name_copy = calloc(strlen(function_name) + 1, sizeof(char));
+  strcpy(function_name_copy, function_name);
+  hmap_put(tracer->function_names, (uint64_t)nopl_addr + CALL_INSTRUCTION_SIZE,
+           function_name_copy);
+
+  return (uint64_t)nopl_addr;
 }
 
 void run_bpf_program() {
-  void *ret_addr = __builtin_return_address(0);
-  uint64_t function_address = find_function_start(g_tracer, (uint64_t)ret_addr);
-
-  printf("run_bpf_program:\n");
-  printf("return address = %p\n", ret_addr);
-  // printf("function_address = %ld\n", function_address);
+  uint64_t ret_addr = (uint64_t)__builtin_return_address(0);
 
   // find vm in the vm_map
   struct THmapValueResult *hmap_entry =
-      hmap_get(g_tracer->vm_map, (uint64_t)ret_addr);
+      hmap_get(get_tracer()->vm_map, ret_addr);
   if (hmap_entry->m_Result == HMAP_SUCCESS) {
     struct ArrayListWithLabels *list = hmap_entry->m_Value;
-    printf("found %lu attached programs\n", list->m_Length);
     for (uint64_t i = 0; i < list->m_Length; ++i) {
-      struct LabeledEntry list_item = list->m_List[i];
-      printf("executing BPF program: %s\n", list_item.m_Label);
-      struct ubpf_vm *vm = list_item.m_Value;
-
       size_t ctx_size = sizeof(struct UbpfTracerCtx);
       struct UbpfTracerCtx *ctx = malloc(ctx_size);
       ctx->traced_function_address = ret_addr;
 
+      struct LabeledEntry list_item = list->m_List[i];
+      struct ubpf_vm *vm = list_item.m_Value;
+
       uint64_t ret;
       if (ubpf_exec(vm, ctx, ctx_size, &ret) < 0)
         ret = UINT64_MAX;
-      printf("BPF program returned: %lu\n", ret);
       free(ctx);
     }
-  } else {
-    printf("hmap_get failed: %d\n", hmap_entry->m_Result);
   }
-  printf("end of run_bpf_program\n---------\n");
 }
 
-int ubpf_run_file(const char *filename, struct ubpf_vm *vm) {
-  size_t code_len;
-  void *code = readfile(filename, 1024 * 1024, &code_len);
-  if (code == NULL) {
-    return 1;
+void prog_list_print(const char *function_name,
+                     const struct ArrayListWithLabels *list,
+                     void (*print_fn)(char *str)) {
+  size_t buf_size = 100 * (list->m_Length + 1);
+  char *buf = calloc(buf_size, sizeof(char));
+  int len = 0;
+  len += snprintf(buf, buf_size - len, "%s:\n", function_name);
+  for (size_t j = 0; j < list->m_Length; ++j) {
+    len += snprintf(buf + len, buf_size - len, "  - %s\n",
+                    list->m_List[j].m_Label);
   }
-  size_t mem_len = 1024;
-  void *mem = calloc(mem_len, sizeof(int));
-  char *errmsg;
-  int rv;
-  rv = ubpf_load(vm, code, code_len, &errmsg);
-  free(code);
+  print_fn(buf);
+  free(buf);
+}
 
-  if (rv < 0) {
-    fprintf(stderr, "Failed to load code: %s\n", errmsg);
-    free(errmsg);
-    ubpf_destroy(vm);
-    return 1;
+int bpf_list_internal(struct UbpfTracer *tracer, const char *function_name,
+                      void (*print_fn)(char *str)) {
+  if (function_name != NULL) {
+    uint64_t fun_addr = get_function_address(tracer, function_name);
+    if (fun_addr == 0) {
+      print_fn(ERR("Function not found.\n"));
+      return 1;
+    }
+
+    uint64_t nop_addr = get_nop_address(tracer, fun_addr);
+    if (nop_addr == 0) {
+      print_fn(ERR("Function not traced.\n"));
+      return 1;
+    }
+
+    struct THmapValueResult *attached_programs =
+        hmap_get(tracer->vm_map, nop_addr + CALL_INSTRUCTION_SIZE);
+    if (attached_programs->m_Result != HMAP_SUCCESS) {
+      wrap_print_fn(100, ERR("No programs attached to %s\n"), function_name);
+      return 1;
+    }
+
+    prog_list_print(function_name, attached_programs->m_Value, print_fn);
+  } else {
+    // list all
+    size_t map_size = tracer->vm_map->m_Size;
+    for (size_t i = 0; i < map_size; ++i) {
+      struct THashCell *current = tracer->vm_map->m_Map[i];
+      while (current != NULL) {
+        struct THmapValueResult *fun_name =
+            hmap_get(tracer->function_names, current->m_Key);
+        if (fun_name->m_Result != HMAP_SUCCESS) {
+          wrap_print_fn(100, ERR("Can't find function name for address %p\n"),
+                        (void *)current->m_Key);
+          continue;
+        }
+
+        prog_list_print(fun_name->m_Value, current->m_Value, print_fn);
+        current = current->m_Next;
+      }
+    }
   }
-
-  uint64_t ret;
-
-  if (ubpf_exec(vm, mem, mem_len, &ret) < 0)
-    ret = UINT64_MAX;
-  ubpf_unload_code(vm);
-  free(mem);
   return 0;
 }
 
-__attribute__((noinline)) int run_test_file() {
-  uint64_t *ret_addr = __builtin_return_address(0);
-  printf("------\nrun_test_file()\n");
-  printf("return address=%p\n", ret_addr);
-  struct ubpf_vm *test_vm = ubpf_create();
-  init_vm(test_vm);
-  return ubpf_run_file("test.bin", test_vm);
+int bpf_detach_internal(struct UbpfTracer *tracer, const char *function_name,
+                        const char *bpf_filename, void (*print_fn)(char *str)) {
+  // TODO
+  return 0;
 }
 
-void *readfile(const char *path, size_t maxlen, size_t *len) {
-  FILE *file = fopen(path, "r");
+int bpf_attach(const char *function_name, const char *bpf_filename,
+               void (*print_fn)(char *str)) {
+  return bpf_attach_internal(get_tracer(), function_name, bpf_filename,
+                             print_fn);
+}
 
-  if (file == NULL) {
-    fprintf(stderr, "Failed to open %s: %s\n", path, strerror(errno));
-    return NULL;
-  }
+int bpf_list(const char *function_name, void (*print_fn)(char *str)) {
+  return bpf_list_internal(get_tracer(), function_name, print_fn);
+}
 
-  char *data = calloc(maxlen, 1);
-  size_t offset = 0;
-  size_t rv;
-  while ((rv = fread(data + offset, 1, maxlen - offset, file)) > 0) {
-    offset += rv;
-  }
+int bpf_detach(const char *function_name, const char *bpf_filename,
+               void (*print_fn)(char *str)) {
+  return bpf_detach_internal(get_tracer(), function_name, bpf_filename,
+                             print_fn);
+}
 
-  if (ferror(file)) {
-    fprintf(stderr, "Failed to read %s: %s\n", path, strerror(errno));
-    fclose(file);
-    free(data);
-    return NULL;
+int bpf_get_addr(const char *function_name, void (*print_fn)(char *str)) {
+  struct UbpfTracer *tracer = get_tracer();
+  uint64_t addr = find_nop_address(tracer, function_name, print_fn);
+  if (addr == 0) {
+    return 1;
   }
-
-  if (!feof(file)) {
-    fprintf(stderr,
-            "Failed to read %s because it is too large (max %u bytes)\n", path,
-            (unsigned)maxlen);
-    fclose(file);
-    free(data);
-    return NULL;
-  }
-
-  fclose(file);
-  if (len) {
-    *len = offset;
-  }
-  return (void *)data;
+  addr += CALL_INSTRUCTION_SIZE;
+  wrap_print_fn(100, "Address of %s is %lx\n", function_name, addr);
+  return 0;
 }
