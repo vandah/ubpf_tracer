@@ -139,7 +139,7 @@ int bpf_attach_internal(struct UbpfTracer *tracer, const char *function_name,
   }
   // TODO: verify bpf_program here
 
-  struct ubpf_vm *vm = init_vm(tracer->helper_list);
+  struct ubpf_vm *vm = init_vm(tracer->helper_list, NULL);
   char *errmsg;
   ubpf_load(vm, bpf_program, code_len, &errmsg);
 

@@ -1,4 +1,6 @@
 #include "ubpf_helpers.h"
+#include "ubpf.h"
+#include <stdio.h>
 
 struct THashMap *g_bpf_map = NULL;
 struct ArrayListWithLabels *additional_helpers = NULL;
@@ -104,14 +106,13 @@ void additional_helpers_list_del(const char *label) {
   }
 }
 
-#define register_helper(idx, label, fun_ptr)                                   \
-  {                                                                            \
-    printf("%s: %lu\n", label, idx);                                           \
-    ubpf_register(vm, idx, label, fun_ptr);                                    \
+struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
+                        FILE *logfile) {
+  struct ubpf_vm *vm = ubpf_create();
+  if (logfile != NULL) {
+    fprintf(logfile, "attached BPF helpers:\n");
   }
 
-struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list) {
-  struct ubpf_vm *vm = ubpf_create();
   uint64_t function_index = 0;
   register_helper(function_index, "bpf_map_get", bpf_map_get);
   function_index++;
@@ -177,10 +178,19 @@ void *readfile(const char *path, size_t maxlen, size_t *len) {
 
 int bpf_exec(const char *filename, void *args, size_t args_size,
              void (*print_fn)(char *str)) {
-  struct ubpf_vm *vm = init_vm(NULL);
+  FILE *logfile = fopen("bpf_exec.log", "a");
+
+  fprintf(logfile, "\n# bpf_exec %s", filename);
+  if (args != NULL) {
+    fprintf(logfile, " %s", (char *)args);
+  }
+  fprintf(logfile, "\n");
+
+  struct ubpf_vm *vm = init_vm(NULL, logfile);
   size_t code_len;
   void *code = readfile(filename, 1024 * 1024, &code_len);
   if (code == NULL) {
+    fclose(logfile);
     return 1;
   }
   char *errmsg;
@@ -190,19 +200,24 @@ int bpf_exec(const char *filename, void *args, size_t args_size,
 
   if (rv < 0) {
     size_t buf_size = 100 + strlen(errmsg);
-    wrap_print_fn(buf_size, "Failed to load code: %s\n", errmsg);
+    wrap_print_fn(buf_size, ERR("Failed to load code: %s\n"), errmsg);
+    fprintf(logfile, "Failed to load code: %s\n", errmsg);
 
     free(errmsg);
     ubpf_destroy(vm);
+    fclose(logfile);
     return 1;
   }
 
   uint64_t ret;
   if (ubpf_exec(vm, args, args_size, &ret) < 0) {
-    ret = UINT64_MAX;
-    print_fn("BPF program execution failed.\n");
+    print_fn(ERR("BPF program execution failed.\n"));
+    fprintf(logfile, "BPF program execution failed.\n");
+  } else {
+    wrap_print_fn(100, YAY("BPF program returned: %lu\n"), ret);
+    fprintf(logfile, "BPF program returned: %lu\n", ret);
   }
-  wrap_print_fn(100, YAY("BPF program returned: %lu\n"), ret);
-  ubpf_unload_code(vm);
+  ubpf_destroy(vm);
+  fclose(logfile);
   return 0;
 }
