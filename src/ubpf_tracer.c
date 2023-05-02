@@ -124,6 +124,7 @@ int bpf_attach_internal(struct UbpfTracer *tracer, const char *function_name,
                         const char *bpf_filename, void (*print_fn)(char *str)) {
   if (function_name == NULL || bpf_filename == NULL)
     return 1;
+  wrap_print_fn(128, YAY("Load %s\n"), bpf_filename);
 
   uint64_t nop_addr = find_nop_address(tracer, function_name, print_fn);
   if (nop_addr == 0) {
