@@ -41,6 +41,11 @@
 .text
 
 ENTRY(_run_bpf_program)
+	movq %rax, ubpf_tracer_save_rax
+	movq (%rsp), %rax
+	movq %rax, ubpf_tracer_ret_addr
+	movq ubpf_tracer_ret_addr, %rax
+
 	PUSH_CALLER_SAVE
 	pushq %rbp
 	movq %rsp, %rbp
