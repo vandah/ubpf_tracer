@@ -154,7 +154,9 @@ int bpf_attach_internal(struct UbpfTracer *tracer, const char *function_name,
     list_add_elem(list, label, vm);
 
     if (!nop_already_replaced) {
-      uint64_t run_bpf_address = (uint64_t)run_bpf_program;
+      extern void _run_bpf_program();
+      // _run_bpf_program is defined in ubpf_tracer_trampoline.S
+      uint64_t run_bpf_address = (uint64_t)_run_bpf_program;
       uint8_t call_function[CALL_INSTRUCTION_SIZE];
       call_function[0] = CALL_OPCODE;
       uint32_t offset =

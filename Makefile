@@ -23,6 +23,9 @@ build/ubpf_tracer.o: src/ubpf_tracer.c include/ubpf_tracer.h \
  ubpf/vm/inc/ubpf_config.h include/ubpf_helpers.h
 	gcc -c $(CFLAGS) -o $@ $<
 
+build/ubpf_tracer_trampoline.o: src/ubpf_tracer_trampoline.S
+	gcc -c $(CFLAGS) -o $@ $<
+
 build/libubpf_tracer.a: build/hash_chains.o build/ubpf_helpers.o \
-	build/ubpf_tracer.o build/arraylist.o ubpf/vm/libubpf.a
+	build/ubpf_tracer.o build/ubpf_tracer_trampoline.o build/arraylist.o ubpf/vm/libubpf.a
 	ar rcs $@ $^
