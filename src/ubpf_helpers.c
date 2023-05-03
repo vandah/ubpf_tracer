@@ -26,6 +26,8 @@ struct THashMap *init_bpf_map() {
   return hmap_init(101, &destruct_cell_l1, &create_cell_l1, &err);
 }
 
+void bpf_map_noop(){}
+
 uint64_t bpf_map_get(uint64_t key1, uint64_t key2) {
   if (g_bpf_map == NULL) {
     g_bpf_map = init_bpf_map();
@@ -114,6 +116,8 @@ struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
   }
 
   uint64_t function_index = 0;
+  register_helper(function_index, "bpf_map_noop", bpf_map_noop);
+  function_index++;
   register_helper(function_index, "bpf_map_get", bpf_map_get);
   function_index++;
   register_helper(function_index, "bpf_map_put", bpf_map_put);
