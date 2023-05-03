@@ -40,7 +40,7 @@ void additional_helpers_list_del(const char *label);
 void *readfile(const char *path, size_t maxlen, size_t *len);
 
 // shell commands
-int bpf_exec(const char *filename, void *args, size_t args_size,
+int bpf_exec(const char *filename, void *args, size_t args_size, int debug,
              void (*print_fn)(char *str));
 
 #endif /* UBPF_HELPERS_H */
