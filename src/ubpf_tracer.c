@@ -72,7 +72,6 @@ struct UbpfTracer *init_tracer() {
   // register local helpers
   tracer_helpers_add(tracer, "bpf_notify", bpf_notify);
   tracer_helpers_add(tracer, "bpf_get_ret_addr", bpf_get_ret_addr);
-  tracer_helpers_add(tracer, "bpf_get_addr", bpf_get_addr);
 
   load_debug_symbols(tracer);
 
@@ -388,8 +387,3 @@ int bpf_detach(const char *function_name, const char *bpf_filename,
                              print_fn);
 }
 
-uint64_t bpf_get_addr(const char *function_name) {
-  struct UbpfTracer *tracer = get_tracer();
-  uint64_t fun_addr = get_function_address(tracer, function_name);
-  return fun_addr;
-}

@@ -31,6 +31,7 @@
 uint64_t bpf_map_get(uint64_t key1, uint64_t key2);
 void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value);
 void bpf_map_del(uint64_t key1, uint64_t key2);
+uint64_t bpf_get_addr(const char *function_name);
 
 struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list, FILE *logfile);
 struct ArrayListWithLabels *init_helper_list();

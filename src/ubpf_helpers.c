@@ -135,14 +135,17 @@ struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
   }
 
   uint64_t function_index = 0;
-  register_helper(function_index, "bpf_map_noop", bpf_map_noop);
+
+  /* register generail helper functions */
+#define REGISTER_HELPER(name) \
+  register_helper(function_index, #name, name); \
   function_index++;
-  register_helper(function_index, "bpf_map_get", bpf_map_get);
-  function_index++;
-  register_helper(function_index, "bpf_map_put", bpf_map_put);
-  function_index++;
-  register_helper(function_index, "bpf_map_del", bpf_map_del);
-  function_index++;
+
+  REGISTER_HELPER(bpf_map_noop);
+  REGISTER_HELPER(bpf_map_get);
+  REGISTER_HELPER(bpf_map_put);
+  REGISTER_HELPER(bpf_map_del);
+  REGISTER_HELPER(bpf_get_addr);
 
   if (helper_list == NULL) {
     helper_list = additional_helpers;
@@ -258,4 +261,10 @@ int bpf_exec(const char *filename, void *args, size_t args_size, int debug,
     fclose(logfile);
   }
   return 0;
+}
+
+uint64_t bpf_get_addr(const char *function_name) {
+  void *ushell_symbol_get(const char *symbol);
+  uint64_t fun_addr = (uint64_t)ushell_symbol_get(function_name);
+  return fun_addr;
 }
