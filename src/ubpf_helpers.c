@@ -146,6 +146,7 @@ struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
   REGISTER_HELPER(bpf_map_put);
   REGISTER_HELPER(bpf_map_del);
   REGISTER_HELPER(bpf_get_addr);
+  REGISTER_HELPER(bpf_probe_read);
 
   if (helper_list == NULL) {
     helper_list = additional_helpers;
@@ -267,4 +268,34 @@ uint64_t bpf_get_addr(const char *function_name) {
   void *ushell_symbol_get(const char *symbol);
   uint64_t fun_addr = (uint64_t)ushell_symbol_get(function_name);
   return fun_addr;
+}
+
+uint64_t bpf_probe_read(uint64_t addr, uint64_t size) {
+  if (size != 1 && size != 4 && size != 8) {
+    debug("bpf_probe_read: invalid size %lu\n", size);
+    return 0;
+  }
+
+  /* check if addr is valid */
+  struct uk_pagetable;
+  int ukplat_pt_walk(struct uk_pagetable *, uint64_t, uint64_t *, uint64_t *, uint64_t *);
+  struct uk_pagetable *ukplat_pt_get_active(void);
+  struct uk_pagetable *pt = ukplat_pt_get_active();
+  int rc;
+  uint64_t page_addr = addr & ~0xfffULL;
+  uint64_t pte = 0;
+  rc = ukplat_pt_walk(pt, page_addr, NULL, NULL, &pte);
+  if (rc != 0 || (pte & 1) == 0) {
+    // invalid address
+    debug("bpf_probe_read: invalid addr %lu, %lu, %lu\n", addr, page_addr, pte);
+    return 0;
+  }
+
+  if (size == 1){
+    return *(uint8_t*)addr;
+  } else if (size == 4) {
+    return *(uint32_t*)addr;
+  }
+
+  return *(uint64_t*)addr;
 }
