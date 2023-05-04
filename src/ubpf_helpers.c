@@ -148,6 +148,7 @@ struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
   REGISTER_HELPER(bpf_get_addr);
   REGISTER_HELPER(bpf_probe_read);
   REGISTER_HELPER(bpf_time_get_ns);
+  REGISTER_HELPER(bpf_puts);
 
   if (helper_list == NULL) {
     helper_list = additional_helpers;
@@ -304,4 +305,12 @@ uint64_t bpf_probe_read(uint64_t addr, uint64_t size) {
 uint64_t bpf_time_get_ns() {
   uint64_t ukplat_monotonic_clock(void);
   return ukplat_monotonic_clock();
+}
+
+// TODO:
+// - check size, null termination
+// - support format string
+void bpf_puts(char *buf) {
+  void ushell_puts(char *);
+  ushell_puts(buf);
 }
