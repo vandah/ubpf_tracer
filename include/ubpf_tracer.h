@@ -28,6 +28,7 @@ struct UbpfTracer {
 
 struct UbpfTracerCtx {
   uint64_t traced_function_address;
+  char buf[120];
 };
 
 struct DebugInfo {
