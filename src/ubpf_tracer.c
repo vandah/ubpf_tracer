@@ -97,15 +97,20 @@ struct UbpfTracer *get_tracer() {
 }
 
 void load_debug_symbols(struct UbpfTracer *tracer) {
-  char *sym_list[] = {"debug.sym", "/ushell/debug.sym", "symbol.txt", "/ushell/symbol.txt"};
+  char *sym_list[] = { "/symbol.txt", "/ushell/symbol.txt", "/debug.sym", "/ushell/debug.sym" };
   FILE *file_debug_sym = NULL;
   uint32_t symbols_size = 1;
   int i;
+  int format_nm = 0;
 
   for (i = 0; i < sizeof(sym_list) / sizeof(sym_list[0]); i++) {
     file_debug_sym = fopen(sym_list[i], "r");
-    if (file_debug_sym != NULL)
+    if (file_debug_sym != NULL) {
+      if (i >= 2) {
+        format_nm = 1;
+      }
       break;
+    }
   }
   if (file_debug_sym == NULL) {
     // FIXME
@@ -123,10 +128,17 @@ void load_debug_symbols(struct UbpfTracer *tracer) {
     uint64_t *sym_addr = &tracer->symbols[tracer->symbols_cnt].address;
     char *sym_type = tracer->symbols[tracer->symbols_cnt].type;
     char *sym_id = tracer->symbols[tracer->symbols_cnt].identifier;
-    if (fscanf(file_debug_sym, "%lx %s %s\n", sym_addr, sym_type, sym_id) !=
-            3 ||
-        feof(file_debug_sym))
-      break;
+    if (format_nm) {
+      if (fscanf(file_debug_sym, "%lx %s %s\n", sym_addr, sym_type, sym_id) !=
+              3 ||
+          feof(file_debug_sym))
+        break;
+    } else {
+      if (fscanf(file_debug_sym, "%lx %s\n", sym_addr, sym_id) !=
+              2 ||
+          feof(file_debug_sym))
+        break;
+    }
 
     tracer->symbols_cnt++;
   }
