@@ -281,18 +281,18 @@ void run_bpf_program() {
     struct ArrayListWithLabels *list = hmap_entry->m_Value;
     for (uint64_t i = 0; i < list->m_Length; ++i) {
       size_t ctx_size = sizeof(struct UbpfTracerCtx);
-      struct UbpfTracerCtx *ctx = malloc(ctx_size);
-      ctx->traced_function_address = ubpf_tracer_ret_addr;
+      struct UbpfTracerCtx ctx = {};
+      ctx.traced_function_address = ubpf_tracer_ret_addr;
 
       struct LabeledEntry list_item = list->m_List[i];
       struct ubpf_vm *vm = list_item.m_Value;
 
       uint64_t ret;
-      if (ubpf_exec(vm, ctx, ctx_size, &ret) < 0)
+      if (ubpf_exec(vm, &ctx, ctx_size, &ret) < 0)
         ret = UINT64_MAX;
-      free(ctx);
     }
   }
+  free(hmap_entry);
 }
 
 void prog_list_print(const char *function_name,

@@ -52,9 +52,13 @@ uint64_t bpf_map_get(uint64_t key1, uint64_t key2) {
     if (hmap_entry_l2->m_Result == HMAP_SUCCESS) {
       uint64_t value = *(uint64_t *)hmap_entry_l2->m_Value;
       debug("(GET) bpf_map[%lu][%lu] = %lu\n", key1, key2, value);
+      free(hmap_entry_l2);
+      free(hmap_entry_l1);
       return value;
     }
+    free(hmap_entry_l2);
   }
+  free(hmap_entry_l1);
   debug("(GET) bpf_map[%lu][%lu] = X\n", key1, key2);
   return UINT64_MAX;
 }
@@ -73,7 +77,9 @@ void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value) {
     if (hmap_entry_l2->m_Result != HMAP_SUCCESS) {
       free(value_copy);
     }
+    free(hmap_entry_l2);
   }
+  free(hmap_entry_l1);
 }
 
 void bpf_map_del(uint64_t key1, uint64_t key2) {

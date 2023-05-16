@@ -80,6 +80,7 @@ struct THmapValueResult *hmap_put(struct THashMap *hmap, uint64_t key,
   // let's see if the key is already there
   while (current != NULL) {
     if (current->m_Key == key) {
+      free(current->m_Value);
       current->m_Value = value;
       result->m_Value = value;
       result->m_Result = HMAP_SUCCESS;
@@ -177,6 +178,7 @@ struct THmapValueResult *hmap_get_or_create(struct THashMap *hmap,
                                             uint64_t key) {
   struct THmapValueResult *result = hmap_get(hmap, key);
   if (result->m_Result == HMAP_NOTFOUND) {
+    free(result);
     return hmap_put(hmap, key, hmap->create_cell());
   }
   return result;
