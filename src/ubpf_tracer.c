@@ -169,7 +169,9 @@ int bpf_attach_internal(struct UbpfTracer *tracer, const char *function_name,
     list_add_elem(list, label, vm);
 
     if (!nop_already_replaced) {
-      uint64_t run_bpf_address = (uint64_t)run_bpf_program;
+      extern void _run_bpf_program();
+      // _run_bpf_program is defined in ubpf_tracer_trampoline.S
+      uint64_t run_bpf_address = (uint64_t)_run_bpf_program;
       uint8_t call_function[CALL_INSTRUCTION_SIZE];
       call_function[0] = CALL_OPCODE;
       uint32_t offset =
@@ -257,18 +259,18 @@ uint64_t find_nop_address(struct UbpfTracer *tracer, const char *function_name,
   return (uint64_t)nopl_addr;
 }
 
+uint64_t ubpf_tracer_save_rax;
+uint64_t ubpf_tracer_ret_addr;
 void run_bpf_program() {
-  uint64_t ret_addr = (uint64_t)__builtin_return_address(0);
-
   // find vm in the vm_map
   struct THmapValueResult *hmap_entry =
-      hmap_get(get_tracer()->vm_map, ret_addr);
+      hmap_get(get_tracer()->vm_map, ubpf_tracer_ret_addr);
   if (hmap_entry->m_Result == HMAP_SUCCESS) {
     struct ArrayListWithLabels *list = hmap_entry->m_Value;
     for (uint64_t i = 0; i < list->m_Length; ++i) {
       size_t ctx_size = sizeof(struct UbpfTracerCtx);
       struct UbpfTracerCtx *ctx = malloc(ctx_size);
-      ctx->traced_function_address = ret_addr;
+      ctx->traced_function_address = ubpf_tracer_ret_addr;
 
       struct LabeledEntry list_item = list->m_List[i];
       struct ubpf_vm *vm = list_item.m_Value;
