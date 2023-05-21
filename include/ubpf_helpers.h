@@ -23,6 +23,7 @@
   {                                                                            \
     if (logfile != NULL) {                                                     \
       fprintf(logfile, " - [%lu]: %s\n", idx, label);                          \
+      fflush(logfile);                                                         \
     }                                                                          \
     ubpf_register(vm, idx, label, fun_ptr);                                    \
   }
@@ -37,10 +38,6 @@
 uint64_t bpf_map_get(uint64_t key1, uint64_t key2);
 void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value);
 void bpf_map_del(uint64_t key1, uint64_t key2);
-// uint64_t bpf_get_addr(const char *function_name);
-uint64_t bpf_probe_read(uint64_t addr, uint64_t size);
-uint64_t bpf_time_get_ns();
-void bpf_puts(char *buf);
 
 struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list, FILE *logfile);
 struct ArrayListWithLabels *init_helper_list();
@@ -50,7 +47,7 @@ void additional_helpers_list_del(const char *label);
 void *readfile(const char *path, size_t maxlen, size_t *len);
 
 // shell commands
-int bpf_exec(const char *filename, void *args, size_t args_size,
+int bpf_exec(const char *filename, void *args, size_t args_size, int debug,
              void (*print_fn)(char *str));
 
 #endif /* UBPF_HELPERS_H */

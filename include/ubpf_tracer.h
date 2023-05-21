@@ -62,6 +62,5 @@ int bpf_attach(const char *function_name, const char *bpf_filename,
 int bpf_list(const char *function_name, void (*print_fn)(char *str));
 int bpf_detach(const char *function_name, const char *bpf_filename,
                void (*print_fn)(char *str));
-int bpf_get_addr(const char *function_name, void (*print_fn)(char *str));
 
 #endif /* UBPF_TRACER_H */

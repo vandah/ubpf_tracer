@@ -36,16 +36,13 @@ uint64_t bpf_map_get(uint64_t key1, uint64_t key2) {
         hmap_get(hmap_entry_l1->m_Value, key2);
     if (hmap_entry_l2->m_Result == HMAP_SUCCESS) {
       uint64_t value = *(uint64_t *)hmap_entry_l2->m_Value;
-      printf("(GET) bpf_map[%lu][%lu] = %lu\n", key1, key2, value);
       return value;
     }
   }
-  printf("(GET) bpf_map[%lu][%lu] = X\n", key1, key2);
   return UINT64_MAX;
 }
 
 void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value) {
-  printf("(PUT) bpf_map[%lu][%lu] = %lu\n", key1, key2, value);
   if (g_bpf_map == NULL) {
     g_bpf_map = init_bpf_map();
   }
@@ -62,7 +59,6 @@ void bpf_map_put(uint64_t key1, uint64_t key2, uint64_t value) {
 }
 
 void bpf_map_del(uint64_t key1, uint64_t key2) {
-  printf("(DEL) bpf_map[%lu][%lu]", key1, key2);
   if (g_bpf_map == NULL) {
     return;
   }
@@ -111,15 +107,19 @@ struct ubpf_vm *init_vm(struct ArrayListWithLabels *helper_list,
   struct ubpf_vm *vm = ubpf_create();
   if (logfile != NULL) {
     fprintf(logfile, "attached BPF helpers:\n");
+    fflush(logfile);
   }
 
   uint64_t function_index = 0;
-  register_helper(function_index, "bpf_map_get", bpf_map_get);
+
+  /* register generail helper functions */
+#define REGISTER_HELPER(name)                                                  \
+  register_helper(function_index, #name, name);                                \
   function_index++;
-  register_helper(function_index, "bpf_map_put", bpf_map_put);
-  function_index++;
-  register_helper(function_index, "bpf_map_del", bpf_map_del);
-  function_index++;
+
+  REGISTER_HELPER(bpf_map_get);
+  REGISTER_HELPER(bpf_map_put);
+  REGISTER_HELPER(bpf_map_del);
 
   if (helper_list == NULL) {
     helper_list = additional_helpers;
@@ -176,15 +176,21 @@ void *readfile(const char *path, size_t maxlen, size_t *len) {
   return (void *)data;
 }
 
-int bpf_exec(const char *filename, void *args, size_t args_size,
+int bpf_exec(const char *filename, void *args, size_t args_size, int debug,
              void (*print_fn)(char *str)) {
-  FILE *logfile = fopen(BASE_PATH "bpf_exec.log", "a");
-
-  fprintf(logfile, "\n# bpf_exec %s", filename);
-  if (args != NULL) {
-    fprintf(logfile, " %s", (char *)args);
+  FILE *logfile = NULL;
+  if (debug != 0) {
+    logfile = fopen(BASE_PATH "bpf_exec.log", "a");
   }
-  fprintf(logfile, "\n");
+
+  if (logfile != NULL) {
+    fprintf(logfile, "\n# bpf_exec %s", filename);
+    if (args != NULL) {
+      fprintf(logfile, " %s", (char *)args);
+    }
+    fprintf(logfile, "\n");
+    fflush(logfile);
+  }
 
   struct ubpf_vm *vm = init_vm(NULL, logfile);
   size_t code_len;
@@ -201,23 +207,34 @@ int bpf_exec(const char *filename, void *args, size_t args_size,
   if (rv < 0) {
     size_t buf_size = 100 + strlen(errmsg);
     wrap_print_fn(buf_size, ERR("Failed to load code: %s\n"), errmsg);
-    fprintf(logfile, "Failed to load code: %s\n", errmsg);
+    if (logfile != NULL) {
+      fprintf(logfile, "Failed to load code: %s\n", errmsg);
+    }
 
     free(errmsg);
     ubpf_destroy(vm);
-    fclose(logfile);
+    if (logfile != NULL) {
+      fclose(logfile);
+    }
     return 1;
   }
 
   uint64_t ret;
   if (ubpf_exec(vm, args, args_size, &ret) < 0) {
     print_fn(ERR("BPF program execution failed.\n"));
-    fprintf(logfile, "BPF program execution failed.\n");
+    if (logfile != NULL) {
+      fprintf(logfile, "BPF program execution failed.\n");
+    }
   } else {
-    wrap_print_fn(100, YAY("BPF program returned: %lu\n"), ret);
-    fprintf(logfile, "BPF program returned: %lu\n", ret);
+    wrap_print_fn(100, YAY("BPF program returned: %d (0x%lx)\n"), (int32_t)ret,
+                  ret);
+    if (logfile != NULL) {
+      fprintf(logfile, "BPF program returned: %d (0x%lx)\n", (int32_t)ret, ret);
+    }
   }
   ubpf_destroy(vm);
-  fclose(logfile);
+  if (logfile != NULL) {
+    fclose(logfile);
+  }
   return 0;
 }

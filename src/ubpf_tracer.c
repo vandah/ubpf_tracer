@@ -369,13 +369,3 @@ int bpf_detach(const char *function_name, const char *bpf_filename,
   return bpf_detach_internal(get_tracer(), function_name, bpf_filename,
                              print_fn);
 }
-
-int bpf_get_addr(const char *function_name, void (*print_fn)(char *str)) {
-  uint64_t addr = bpf_get_ret_addr(function_name);
-  if (addr == 0) {
-    print_fn(ERR("Function not traced\n"));
-    return 1;
-  }
-  wrap_print_fn(100, "Address of %s is %lx\n", function_name, addr);
-  return 0;
-}
