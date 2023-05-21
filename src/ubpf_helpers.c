@@ -178,7 +178,7 @@ void *readfile(const char *path, size_t maxlen, size_t *len) {
 
 int bpf_exec(const char *filename, void *args, size_t args_size,
              void (*print_fn)(char *str)) {
-  FILE *logfile = fopen("bpf_exec.log", "a");
+  FILE *logfile = fopen(BASE_PATH "bpf_exec.log", "a");
 
   fprintf(logfile, "\n# bpf_exec %s", filename);
   if (args != NULL) {

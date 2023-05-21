@@ -97,7 +97,7 @@ struct UbpfTracer *get_tracer() {
 }
 
 void load_debug_symbols(struct UbpfTracer *tracer) {
-  FILE *file_debug_sym = fopen("debug.sym", "r");
+  FILE *file_debug_sym = fopen(BASE_PATH "debug.sym", "r");
   uint32_t symbols_size = 1;
 
   tracer->symbols_cnt = 0;
