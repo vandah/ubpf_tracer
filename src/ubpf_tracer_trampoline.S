@@ -40,7 +40,7 @@
 
 .text
 
-ENTRY(_run_bpf_program)
+ENTRY(_call_hook)
 	movq %rax, ubpf_tracer_save_rax
 	movq (%rsp), %rax
 	movq %rax, ubpf_tracer_ret_addr
